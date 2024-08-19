@@ -3,7 +3,7 @@
 import numpy as np, torch, sys, random, time, os.path
 import tetris
 
-from game import Game, kW, kTensorDim
+from game import Game, K_W, K_TENSOR_DIM
 from model import Model, ConvBlock, obs_to_torch
 from config import Configs
 
@@ -21,7 +21,7 @@ def GetStrat(game):
     with torch.no_grad():
         pi = model(GetTorch(game))[0]
         act = torch.argmax(pi.probs, 1).item()
-        return act // kW, act % kW
+        return act // K_W, act % K_W
 
 kStr = [['# # #  ', '# # #  ', '# #    ', '  # #  ', '  # #  ', '# # #  ', '# # # #'],
         ['  #    ', '    #  ', '  # #  ', '  # #  ', '# #    ', '#      ', '       ']]

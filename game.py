@@ -5,34 +5,40 @@ import numpy as np
 
 import tetris
 
-kH, kW = 20, 10
-kTensorDim = (3, kH, kW)
-kMaxFail = 3
+K_H, K_W = 20, 10
+K_TENSOR_DIM = (3, K_H, K_W)
+K_MAX_FAIL = 3
 
-def CalReward(success, score, new_score):
-    if not success: return -0.125
+def cal_reward(success, score, new_score):
+    if not success:
+        return -0.125
     #return (score + new_score) ** 2 - score ** 2
     ret = 0
     for i in range(new_score):
-        if score + i < 30: ret += 0.5
-        elif score + i < 35: ret += 3
-        else: ret += 8
+        if score + i < 30:
+            ret += 0.5
+        elif score + i < 35:
+            ret += 3
+        else:
+            ret += 8
     return ret
 
 class Game:
     def __init__(self, seed: int, tpow = 1):
         self.args = (0, False)
         self.tpow = tpow
-        self.obs = np.zeros(kTensorDim, dtype = np.uint8)
+        self.obs = np.zeros(K_TENSOR_DIM, dtype = np.uint8)
         self.env = tetris.Tetris(seed, *self.args)
         self.reset(False)
+        self.fail_cnt = 0
 
     def set_state(self, cur, nxt, board = None):
-        if board is None: board = np.zeros((20, 10), dtype = 'int32')
+        if board is None:
+            board = np.zeros((20, 10), dtype = 'int32')
         self.env.board = board.astype('int32')
         self.env.cur = cur
         self.env.nxt = nxt
-        self.env._SetInternal()
+        self.env._SetInternal()  # pylint: disable=protected-access
         self._set_obs()
 
     def _set_obs(self):
@@ -49,13 +55,14 @@ class Game:
          returns a tuple of (observation, reward, done, info).
         """
         suc, score, _ = self.env.Place(*action, **kwargs)
-        reward = CalReward(suc, self.score, score)
-        if suc: self.score += score
+        reward = cal_reward(suc, self.score, score)
+        if suc:
+            self.score += score
         self.reward += reward
         self.length += 1
         self.fail_cnt = 0 if suc else self.fail_cnt + 1
         self._set_obs()
-        over = self.env.over or self.fail_cnt >= kMaxFail
+        over = self.env.over or self.fail_cnt >= K_MAX_FAIL
 
         if over:
             # if finished, set episode information if episode is over, and reset
@@ -67,7 +74,8 @@ class Game:
 
     def reset(self, env_reset = True):
         """ Reset environment """
-        if env_reset: self.env.Reset(*self.args)
+        if env_reset:
+            self.env.Reset(*self.args)
         self.fail_cnt = 0
         self.length = 0
         self.reward = 0
@@ -78,19 +86,22 @@ class Game:
 def worker_process(remote: "multiprocessing.connection.Connection", seed: int, num: int):
     """Each worker process runs this method"""
     # create game
-    Seed = lambda x: int.from_bytes(hashlib.sha256(
-        int.to_bytes(seed, 4, 'little') + int.to_bytes(x, 4, 'little')).digest(), 'little')
-    games = [Game(Seed(i)) for i in range(num)]
+    def seed_func(x):
+        return int.from_bytes(hashlib.sha256(
+            int.to_bytes(seed, 4, 'little') + int.to_bytes(x, 4, 'little')).digest(), 'little')
+    games = [Game(seed_func(i)) for i in range(num)]
     # wait for instructions from the connection and execute them
     while True:
         result = []
         cmd, data = remote.recv()
         if cmd == "step":
-            for i in range(num): result.append(games[i].step((data[i] // kW, data[i] % kW)))
+            for i in range(num):
+                result.append(games[i].step((data[i] // K_W, data[i] % K_W)))
             obs, rew, over, info = zip(*result)
             remote.send((np.stack(obs), np.stack(rew), np.array(over), list(info)))
         elif cmd == "reset":
-            for i in range(num): result.append(games[i].reset())
+            for i in range(num):
+                result.append(games[i].reset())
             remote.send(np.stack(result))
         elif cmd == "close":
             remote.close()

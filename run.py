@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 
-from PIL import Image, ImageGrab
-from ctypes import windll
-import win32gui, win32ui, xxhash
-import numpy as np
 import time
+from ctypes import windll
+
+import numpy as np
+import win32gui
+import win32ui
+import xxhash
+from PIL import Image, ImageGrab
+
 
 class Capture:
     def __init__(self):
@@ -86,12 +90,17 @@ class Capture:
         [[1, 1, 1, 1], [0, 0, 0, 0]]
     ])
 
-import sys, torch, os
-from model import Model, ConvBlock, obs_to_torch
-from config import Configs
-from game import kH, kW
+import os
+import sys
+
+import torch
+
 import tetris
 import tetris.Tetris_Internal
+from config import Configs
+from game import K_H, K_W
+from model import ConvBlock, Model, obs_to_torch
+
 
 def GetMovesString(m):
     ret = '---' if len(m) == 0 or m[0][0] != 0 else ''
@@ -113,7 +122,7 @@ kTransition = [
 ]
 
 def PrintStrat(model, board, now, nxt, score, tx = None, ty = None):
-    obs = np.zeros((3, kH, kW), dtype = 'uint8')
+    obs = np.zeros((3, K_H, K_W), dtype = 'uint8')
     obs[0] = 1 - board
     obs[1], t_dir = tetris.GetAllowed(board, now, False, 9, True)
     obs[2,0,0] = now
@@ -122,7 +131,7 @@ def PrintStrat(model, board, now, nxt, score, tx = None, ty = None):
     with torch.no_grad():
         pi = model(obs_to_torch(obs).unsqueeze(0))[0]
         act = torch.argmax(pi.probs, 1).item()
-        x, y = act // kW, act % kW
+        x, y = act // K_W, act % K_W
     s = board.astype('int32')
     tetris.Tetris_Internal.Place(s.data, now, 0, x, y, 2, False)
     print(s)
@@ -136,7 +145,7 @@ def PrintStrat(model, board, now, nxt, score, tx = None, ty = None):
     for rx, ry in pos:
         s = board.astype('int32')
         dscore = score + tetris.Tetris_Internal.Place(s.data, now, 0, rx, ry, 1, True)
-        obs = np.zeros((3, kH, kW), dtype = 'uint8')
+        obs = np.zeros((3, K_H, K_W), dtype = 'uint8')
         obs[0] = 1 - s
         obs[1], t_dir = tetris.GetAllowed(s, nxt, False, 9, True)
         obs[2,0,0] = nxt
@@ -146,7 +155,7 @@ def PrintStrat(model, board, now, nxt, score, tx = None, ty = None):
         with torch.no_grad():
             pi = model(obs_to_torch(obs))[0]
             act = torch.argmax(pi.probs, 1).cpu().numpy()
-            gx, gy = act // kW, act % kW
+            gx, gy = act // K_W, act % K_W
         mp = {}
         for i in range(7):
             r = (gx[i], gy[i])
@@ -211,4 +220,3 @@ if __name__ == "__main__":
     model.eval()
     while True:
         Loop(model)
-

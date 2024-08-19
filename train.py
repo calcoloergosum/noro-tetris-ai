@@ -2,13 +2,10 @@
 
 # Modified from https://github.com/vpj/rl_samples
 
+import argparse
 import collections
-import os
-import subprocess
-import sys
 import traceback
-from typing import Dict, List
-import time
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -18,11 +15,11 @@ from torch import optim
 from torch.amp import GradScaler, autocast
 
 from config import Configs
-from game import Game, Worker, kTensorDim
-from model import ConvBlock, Model, obs_to_torch
+from game import K_TENSOR_DIM, Worker
+from model import Model, obs_to_torch
 
-device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = torch.device(device_type)
+DEVICE_TYPE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE = torch.device(DEVICE_TYPE)
 
 class SortedQueue:
     def __init__(self, sz):
@@ -32,8 +29,10 @@ class SortedQueue:
     def add(self, val):
         self.__list.add(val)
         self.__queue.append(val)
-        if len(self.__queue) > self.size: self.__list.discard(self.__queue.popleft())
-    def __len__(self): return len(self.__queue)
+        if len(self.__queue) > self.size:
+            self.__list.discard(self.__queue.popleft())
+    def __len__(self):
+        return len(self.__queue)
     def get_ratio(self, val):
         ind = min(len(self.__queue) - 1, max(0, int(len(self.__queue) * val)))
         return self.__list[ind]
@@ -44,7 +43,7 @@ class Main:
         # total number of samples for a single update
         self.envs = self.c.n_workers * self.c.env_per_worker
         self.batch_size = self.envs * self.c.worker_steps
-        assert (self.batch_size % self.c.mini_batch_size == 0)
+        assert self.batch_size % self.c.mini_batch_size == 0
 
         # #### Initialize
         # create workers
@@ -52,7 +51,7 @@ class Main:
         self.score_queue = SortedQueue(400)
 
         # initialize tensors for observations
-        self.obs = np.zeros((self.envs, *kTensorDim))
+        self.obs = np.zeros((self.envs, *K_TENSOR_DIM))
         for worker in self.workers:
             worker.child.send(("reset", None))
         for w, worker in enumerate(self.workers):
@@ -60,22 +59,23 @@ class Main:
         self.obs = obs_to_torch(self.obs)
 
         # model for sampling
-        self.model = Model(c.channels, c.blocks).to(device)
+        self.model = Model(c.channels, c.blocks).to(DEVICE)
 
         # optimizer
-        self.scaler = GradScaler(device)
+        self.scaler = GradScaler(DEVICE)
         self.optimizer = optim.Adam(self.model.parameters(), lr = self.c.lr, weight_decay = self.c.reg_l2)
 
-    def w_range(self, x): return slice(x * self.c.env_per_worker, (x + 1) * self.c.env_per_worker)
+    def w_range(self, x):
+        return slice(x * self.c.env_per_worker, (x + 1) * self.c.env_per_worker)
 
-    def sample(self) -> (Dict[str, np.ndarray], List):
+    def sample(self) -> Tuple(Dict[str, np.ndarray], List):
         """### Sample data with current policy"""
         rewards = np.zeros((self.envs, self.c.worker_steps), dtype = np.float16)
         done = np.zeros((self.envs, self.c.worker_steps), dtype = np.bool_)
-        actions = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.int32, device = device)
-        obs = torch.zeros((self.envs, self.c.worker_steps, *kTensorDim), dtype = torch.uint8, device = device)
-        log_pis = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = device)
-        values = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = device)
+        actions = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.int32, device = DEVICE)
+        obs = torch.zeros((self.envs, self.c.worker_steps, *K_TENSOR_DIM), dtype = torch.uint8, device = DEVICE)
+        log_pis = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = DEVICE)
+        values = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = DEVICE)
 
         # sample `worker_steps` from each worker
         for t in range(self.c.worker_steps):
@@ -95,7 +95,7 @@ class Main:
             for w, worker in enumerate(self.workers):
                 worker.child.send(("step", actions[self.w_range(w),t].cpu().numpy()))
 
-            self.obs = np.zeros((self.envs, *kTensorDim))
+            self.obs = np.zeros((self.envs, *K_TENSOR_DIM))
             for w, worker in enumerate(self.workers):
                 # get results after executing the actions
                 now = self.w_range(w)
@@ -106,7 +106,8 @@ class Main:
                 #  look at `Game` to see how it works.
                 # We also add a game frame to it for monitoring.
                 for info in info_arr:
-                    if not info: continue
+                    if not info:
+                        continue
                     self.score_queue.add(info['score'])
                     tracker.add('reward', info['reward'])
                     tracker.add('score', info['score'])
@@ -135,13 +136,13 @@ class Main:
 
     def _calc_advantages(self, done: np.ndarray, rewards: np.ndarray, values: torch.Tensor) -> torch.Tensor:
         """### Calculate advantages"""
-        with torch.no_grad(), autocast(device_type):
-            rewards = torch.from_numpy(rewards).to(device)
-            done = torch.from_numpy(done).to(device)
+        with torch.no_grad(), autocast(DEVICE_TYPE):
+            rewards = torch.from_numpy(rewards).to(DEVICE)
+            done = torch.from_numpy(done).to(DEVICE)
 
             # advantages table
-            advantages = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = device)
-            last_advantage = torch.zeros(self.envs, dtype = torch.float16, device = device)
+            advantages = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = DEVICE)
+            last_advantage = torch.zeros(self.envs, dtype = torch.float16, device = DEVICE)
 
             # $V(s_{t+1})$
             _, last_value = self.model(self.obs)
@@ -242,7 +243,7 @@ class Main:
         offset = tracker.get_global_step()
         for _ in monit.loop(self.c.updates - offset):
             update = tracker.get_global_step()
-            progress = update / self.c.updates
+            # progress = update / self.c.updates
             # sample with current policy
             samples = self.sample()
             # train the model
@@ -257,25 +258,26 @@ class Main:
         for worker in self.workers:
             worker.child.send(("close", None))
 
-import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('name')
     parser.add_argument('uuid', nargs = '?', default = '')
     conf = Configs()
-    keys = conf._to_json()
+    keys = conf._to_json()  # pylint: disable=protected-access
     for key in keys:
-        parser.add_argument('--' + key.replace('_', '-'), type = type(conf.__getattribute__(key)))
+        parser.add_argument('--' + key.replace('_', '-'), type = type(getattr(conf, key)))
     args = vars(parser.parse_args())
     override_dict = {}
     for key in keys:
-        if args[key] is not None: override_dict[key] = args[key]
+        if args[key] is not None:
+            override_dict[key] = args[key]
     try:
         if len(args['name']) == 32:
             int(args['name'], 16)
             parser.error('Experiment name should not be uuid-like')
-    except ValueError: pass
+    except ValueError:
+        pass
     experiment.create(name = args['name'])
     conf = Configs()
     experiment.configs(conf, override_dict)
@@ -283,6 +285,8 @@ if __name__ == "__main__":
     # experiment.add_pytorch_models({'model': m.model})
     # if len(args['uuid']): experiment.load(args['uuid'])
     with experiment.start():
-        try: m.run_training_loop()
-        except Exception as e: print(traceback.format_exc())
+        try:
+            m.run_training_loop()
+        except Exception as e:
+            print(traceback.format_exc())
         m.destroy()
