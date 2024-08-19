@@ -68,7 +68,7 @@ class Main:
     def w_range(self, x):
         return slice(x * self.c.env_per_worker, (x + 1) * self.c.env_per_worker)
 
-    def sample(self) -> Tuple(Dict[str, np.ndarray], List):
+    def sample(self) -> Tuple[Dict[str, np.ndarray], List]:
         """### Sample data with current policy"""
         rewards = np.zeros((self.envs, self.c.worker_steps), dtype = np.float16)
         done = np.zeros((self.envs, self.c.worker_steps), dtype = np.bool_)
@@ -252,7 +252,7 @@ class Main:
             tracker.save()
             logger.log()
             if (update + 1) % 500 == 0:
-                experiment.save_checkpoint()
+                torch.save(self.model.state_dict(), 'asd.pt')
 
     def destroy(self):
         for worker in self.workers:
@@ -284,6 +284,11 @@ if __name__ == "__main__":
     m = Main(conf)
     # experiment.add_pytorch_models({'model': m.model})
     # if len(args['uuid']): experiment.load(args['uuid'])
+    try:
+        m.model.load_state_dict(torch.load('asd.pt'))
+    except FileNotFoundError:
+        pass
+
     with experiment.start():
         try:
             m.run_training_loop()
