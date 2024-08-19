@@ -1,4 +1,6 @@
-import multiprocessing, hashlib
+import hashlib
+import multiprocessing
+
 import numpy as np
 
 import tetris
@@ -73,7 +75,7 @@ class Game:
         self._set_obs()
         return self.obs
 
-def worker_process(remote: multiprocessing.connection.Connection, seed: int, num: int):
+def worker_process(remote: "multiprocessing.connection.Connection", seed: int, num: int):
     """Each worker process runs this method"""
     # create game
     Seed = lambda x: int.from_bytes(hashlib.sha256(

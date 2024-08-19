@@ -1,9 +1,14 @@
 import torch, numpy as np
 from torch import nn
 from torch.distributions import Categorical
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 
 from game import kH, kW
+
+
+device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device(device_type)
+
 
 # board, valid, current(7), next(7), score
 kInChannel = 1 + 1 + 7 + 7 + 1
@@ -48,7 +53,7 @@ class Model(nn.Module):
                 nn.Linear(256, 1)
                 )
 
-    @autocast()
+    @autocast(device_type=device_type)
     def forward(self, obs: torch.Tensor):
         q = torch.zeros((obs.shape[0], kInChannel, kH, kW), dtype = torch.float32, device = obs.device)
         q[:,0:2] = obs[:,0:2]
@@ -65,4 +70,4 @@ class Model(nn.Module):
         return pi_sample, value
 
 def obs_to_torch(obs: np.ndarray) -> torch.Tensor:
-    return torch.tensor(obs, dtype = torch.uint8, device = torch.device('cuda'))
+    return torch.tensor(obs, dtype = torch.uint8, device = device)

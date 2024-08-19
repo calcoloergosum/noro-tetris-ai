@@ -4,7 +4,7 @@ from distutils.core import setup, Extension
 
 #args = ['-fsanitize=address', '-fsanitize=undefined']
 #args = ['-fsanitize=address', '-fsanitize=pointer-compare']
-args = []
+args = ['-std=c++11']
 
 name = 'Tetris_Internal'
 module = Extension(name, sources = ['tetris.cpp'],

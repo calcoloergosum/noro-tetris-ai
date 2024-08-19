@@ -2,20 +2,27 @@
 
 # Modified from https://github.com/vpj/rl_samples
 
-import sys, traceback, os, subprocess, collections
+import collections
+import os
+import subprocess
+import sys
+import traceback
 from typing import Dict, List
+import time
+
+import numpy as np
+import torch
+from labml import experiment, logger, monit, tracker
 from sortedcontainers import SortedList
-import numpy as np, torch
 from torch import optim
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import GradScaler, autocast
 
-from labml import monit, tracker, logger, experiment
-
-from game import Game, Worker, kTensorDim
-from model import Model, ConvBlock, obs_to_torch
 from config import Configs
+from game import Game, Worker, kTensorDim
+from model import ConvBlock, Model, obs_to_torch
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = torch.device(device_type)
 
 class SortedQueue:
     def __init__(self, sz):
@@ -56,16 +63,15 @@ class Main:
         self.model = Model(c.channels, c.blocks).to(device)
 
         # optimizer
-        self.scaler = GradScaler()
+        self.scaler = GradScaler(device)
         self.optimizer = optim.Adam(self.model.parameters(), lr = self.c.lr, weight_decay = self.c.reg_l2)
 
     def w_range(self, x): return slice(x * self.c.env_per_worker, (x + 1) * self.c.env_per_worker)
 
     def sample(self) -> (Dict[str, np.ndarray], List):
         """### Sample data with current policy"""
-
         rewards = np.zeros((self.envs, self.c.worker_steps), dtype = np.float16)
-        done = np.zeros((self.envs, self.c.worker_steps), dtype = np.bool)
+        done = np.zeros((self.envs, self.c.worker_steps), dtype = np.bool_)
         actions = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.int32, device = device)
         obs = torch.zeros((self.envs, self.c.worker_steps, *kTensorDim), dtype = torch.uint8, device = device)
         log_pis = torch.zeros((self.envs, self.c.worker_steps), dtype = torch.float16, device = device)
@@ -129,7 +135,7 @@ class Main:
 
     def _calc_advantages(self, done: np.ndarray, rewards: np.ndarray, values: torch.Tensor) -> torch.Tensor:
         """### Calculate advantages"""
-        with torch.no_grad(), autocast():
+        with torch.no_grad(), autocast(device_type):
             rewards = torch.from_numpy(rewards).to(device)
             done = torch.from_numpy(done).to(device)
 
@@ -274,8 +280,8 @@ if __name__ == "__main__":
     conf = Configs()
     experiment.configs(conf, override_dict)
     m = Main(conf)
-    experiment.add_pytorch_models({'model': m.model})
-    if len(args['uuid']): experiment.load(args['uuid'])
+    # experiment.add_pytorch_models({'model': m.model})
+    # if len(args['uuid']): experiment.load(args['uuid'])
     with experiment.start():
         try: m.run_training_loop()
         except Exception as e: print(traceback.format_exc())
